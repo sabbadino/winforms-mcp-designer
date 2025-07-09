@@ -20,7 +20,7 @@ namespace WinFormsApp1
         {
             
         }   
-        [McpServerTool(Name ="add_button_to_form"), 
+        [McpServerTool(Name ="add_control_to_form"), 
             Description("Add a button to the form. Returns the updated layout of the form")]
         public string AddControl(
             [Description("The type of the control")] ControlTypes controlType,
@@ -139,6 +139,64 @@ namespace WinFormsApp1
         {
             var ret =  JsonSerializer.Serialize(Form1._LLMDrivenForm.SerializeControl());
             return ret;
+        }
+
+        [McpServerTool(Name = "draw_line"),
+           Description("Draws a line on the form. Returns the updated layout of the form")]
+        public string DrawLine(
+            [Description("star x point")] int startX,
+            [Description("star y point")] int startY,
+            [Description("end x point")] int endX,
+            [Description("end y point")] int endY,
+            [Description("line color")] string color
+            )
+        {
+            try
+            {
+                Form1._LLMDrivenForm.Invoke(new Action(() => {
+                    using (Graphics g = Form1._LLMDrivenForm.CreateGraphics())
+                    {
+                        using var pen = new Pen(ColorTranslator.FromHtml(color), 2);
+                        g.DrawLine(pen, startX , startY , endX, endY);
+                    }   
+
+                }));
+                var ret = JsonSerializer.Serialize(Form1._LLMDrivenForm.SerializeControl());
+                return ret;
+            }
+            catch (Exception ex)
+            {
+                return $"error executing call. Error is: {GetAllExceptionMessages(ex)}";
+            }
+        }
+
+
+        [McpServerTool(Name = "draw_circle"),
+         Description("Draws a circle on the form. Returns the updated layout of the form")]
+        public string DrawCircle(
+          [Description("center x point")] int startX,
+          [Description("center y point")] int startY,
+          [Description("radius")] int radius,
+          [Description("circle color")] string color
+          )
+        {
+            try
+            {
+                Form1._LLMDrivenForm.Invoke(new Action(() => {
+                    using (Graphics g = Form1._LLMDrivenForm.CreateGraphics())
+                    {
+                        using var pen = new Pen(ColorTranslator.FromHtml(color), 2);
+                        g.DrawEllipse(pen, startX-radius, startY -radius, radius*2, radius*2);
+                    }
+
+                }));
+                var ret = JsonSerializer.Serialize(Form1._LLMDrivenForm.SerializeControl());
+                return ret;
+            }
+            catch (Exception ex)
+            {
+                return $"error executing call. Error is: {GetAllExceptionMessages(ex)}";
+            }
         }
 
         [McpServerTool(Name = "resize_control"),

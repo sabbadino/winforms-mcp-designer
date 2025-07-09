@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc.ModelBinding;
+using Microsoft.AspNetCore.SignalR.Protocol;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 using OpenAI.Chat;
@@ -13,6 +14,7 @@ namespace WinFormsApp1
         internal static LLMDrivenForm? _LLMDrivenForm;
         private readonly ChatClient _chatClient;
         private readonly Dictionary<Guid, List<ChatMessage>> _AllMessages = new();
+        private readonly Dictionary<Guid, List<ChatMessageSerializable>> _AllMessagesSerializable= new();
         public Form1()
         {
             InitializeComponent();
@@ -22,16 +24,18 @@ namespace WinFormsApp1
         {
             _mcpClient = mcpClient;
             _chatClient = chatClient;
+            
         }
 
         private Guid _conversationId = Guid.NewGuid();
+       
         private readonly IMcpClient _mcpClient;
 
         private async void button1_Click(object sender, EventArgs e)
         {
             listBox1.Items.Add($"U: {textBox1.Text}");
             var tools = await _mcpClient.ListToolsAsync();
-            List<ChatMessage>? messages = GetOrCreateConversation(_conversationId);
+            (var messages,var ms)  = GetOrCreateConversation(_conversationId);
             messages.Add(new UserChatMessage(textBox1.Text));
             textBox1.Text = "";
             var co = new ChatCompletionOptions();
@@ -52,6 +56,7 @@ namespace WinFormsApp1
                         {
                             // Add the assistant message to the conversation history.
                             messages.Add(new AssistantChatMessage(completion));
+                            ms.Add(new ChatMessageSerializable { Role = "Assistant", Text = messages.Last().Content[0].Text });
                             break;
                         }
 
@@ -59,7 +64,7 @@ namespace WinFormsApp1
                         {
                             // First, add the assistant message with tool calls to the conversation history.
                             messages.Add(new AssistantChatMessage(completion));
-
+                            ms.Add(new ChatMessageSerializable { Role = completion.Role.ToString(), Text = $"function name: {completion.ToolCalls[0].FunctionName} arguments {completion.ToolCalls[0].FunctionArguments.ToString()}" });
                             // Then, add a new tool message for each tool call that is resolved.
                             foreach (ChatToolCall toolCall in completion.ToolCalls)
                             {
@@ -67,6 +72,7 @@ namespace WinFormsApp1
                                 {
                                     var toolResult = await _mcpClient.CallToolAsync(toolCall.FunctionName, JsonSerializer.Deserialize<Dictionary<string, object?>>(toolCall.FunctionArguments.ToString()));
                                     messages.Add(new ToolChatMessage(toolCall.Id,((TextContentBlock)toolResult.Content[0]).Text));
+                                    ms.Add(new ChatMessageSerializable { Role = "Tool", Text = ((TextContentBlock)toolResult.Content[0]).Text});   
                                 }
                                 else
                                 {
@@ -99,14 +105,19 @@ namespace WinFormsApp1
                 listBox1.Items.Add($"{prefix}{part}");
                 prefix = "";
             }
+            File.WriteAllLines(GetFileName(),  new[] { JsonSerializer.Serialize(ms,new JsonSerializerOptions { WriteIndented = true}) } );
         }
+
+        private string GetFileName() => 
+            $".\\{DateTime.Now.ToString("yyyy-MM-dd-HH-mm-ss")}conversation-{_conversationId}.json";
 
         private void button2_Click(object sender, EventArgs e)
         {
             _conversationId = Guid.NewGuid();
             listBox1.Items.Clear();
             textBox1.Clear();
-            _LLMDrivenForm.Controls.Clear();    
+            _LLMDrivenForm.Controls.Clear();
+            _LLMDrivenForm.Invalidate(); // Force repaint
         }
 
 
@@ -125,17 +136,21 @@ namespace WinFormsApp1
         }
 
 
-        private List<ChatMessage> GetOrCreateConversation(Guid conversationId)
+        private (List<ChatMessage> ChatMessages, List<ChatMessageSerializable> ChatMessageSerializable) GetOrCreateConversation(Guid conversationId)
         {
             _AllMessages.TryGetValue(conversationId, out var messages);
+            _AllMessagesSerializable.TryGetValue(conversationId, out var ms);
             if (messages == null)
             {
                 messages = new();
-                messages.Add(new SystemChatMessage(File.ReadAllText(@".\Templates\system-message-1.md")));  
+                ms = new List<ChatMessageSerializable>();
+                messages.Add(new SystemChatMessage(File.ReadAllText(@".\Templates\system-message-1.md")));
+                ms.Add(new ChatMessageSerializable { Role = "System", Text = messages[0].Content[0].Text });
+                _AllMessagesSerializable.Add(conversationId, ms);
                 _AllMessages.Add(conversationId, messages);
             }
 
-            return messages;
+            return (messages, ms);
         }
 
         private void textBox1_KeyDown(object sender, KeyEventArgs e)
@@ -196,5 +211,11 @@ public class TextSplitter
         }
     }
 
+    public class ChatMessageSerializable
+    {
+        public string Role { get; set; }
+        public string Text { get; set; }
+
+    }
 
 }
