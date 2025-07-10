@@ -14,33 +14,14 @@ using WinFormsApp1;
 
 namespace McpForm_net_framework
 {
-    internal class FakeMcpClient
+    public class FakeMcpClient
     {
         IEnumerable<ChatTool> _tools;
-        Dictionary<string,(MethodInfo MethodInfo, Type Type)> _handlers = new Dictionary<string, (MethodInfo, Type)>(); 
-        internal FakeMcpClient() {
-            ServiceCollection sc = new ServiceCollection();
-            sc.AddMcpServer().WithToolsFromAssembly();
-            IServiceProvider services = sc.BuildServiceProvider();
-            var tx = services.GetServices<McpServerTool>();
-            _tools = tx.Select(t1=> t1.ToOpenAITool());
-            var toolTypes = from t in Assembly.GetExecutingAssembly().GetTypes()
-                               where t.GetCustomAttribute<McpServerToolTypeAttribute>() != null
-                               select t;
-            foreach (var toolType in toolTypes)
-            {
-                if (toolType != null)
-                {
-                    foreach (var toolMethod in toolType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance))
-                    {
-                        var tm = toolMethod.GetCustomAttribute<McpServerToolAttribute>();
-                        if (tm != null)
-                        {
-                            _handlers.Add(tm.Name,(toolMethod, toolType));
-                        }
-                    }
-                }
-            }
+        Dictionary<string,(MethodInfo MethodInfo, Type Type)> _handlers = new Dictionary<string, (MethodInfo, Type)>();
+        public FakeMcpClient(IEnumerable<ChatTool> tools, Dictionary<string, (MethodInfo, Type)> handlers)
+        {
+            _tools = tools;
+            _handlers = handlers;
         }
 
         internal async Task<string> CallToolAsync(string functionName, Dictionary<string, object> dictionary)

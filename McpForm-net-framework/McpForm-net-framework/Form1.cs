@@ -23,10 +23,10 @@ namespace WinFormsApp1
             InitializeComponent();
         }
 
-        public Form1(ChatClient chatClient) : this()
+        public Form1(ChatClient chatClient, FakeMcpClient fakeMcpClient) : this()
         {
             _chatClient = chatClient;
-            _mcpClient = new FakeMcpClient();
+            _mcpClient = fakeMcpClient;
         }
 
         private Guid _conversationId = Guid.NewGuid();
