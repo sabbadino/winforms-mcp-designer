@@ -176,6 +176,8 @@
       <DependentUpon>Form1.cs</DependentUpon>
     </Compile>
     <Compile Include="FormExtensions.cs" />
+    <Compile Include="IocConventions\IocClassMarker.cs" />
+    <Compile Include="IocConventions\IocConventions.cs" />
     <Compile Include="LLMDrivenForm.cs">
       <SubType>Form</SubType>
     </Compile>

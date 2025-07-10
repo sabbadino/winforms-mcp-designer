@@ -17,18 +17,21 @@ namespace McpForm_net_framework
     public class FakeMcpClient
     {
         IEnumerable<ChatTool> _tools;
-        Dictionary<string,(MethodInfo MethodInfo, Type Type)> _handlers = new Dictionary<string, (MethodInfo, Type)>();
-        public FakeMcpClient(IEnumerable<ChatTool> tools, Dictionary<string, (MethodInfo, Type)> handlers)
+        Dictionary<string,MethodInfo> _handlers = new Dictionary<string, MethodInfo>();
+        private readonly IEnumerable<IMcpMarker> _mcpClasses;
+
+        public FakeMcpClient(IEnumerable<ChatTool> tools, Dictionary<string, MethodInfo> handlers, IEnumerable<IMcpMarker> mcpClasses)
         {
             _tools = tools;
             _handlers = handlers;
+            _mcpClasses = mcpClasses;
         }
 
         internal async Task<string> CallToolAsync(string functionName, Dictionary<string, object> dictionary)
         {
             if(_handlers.TryGetValue(functionName, out var handler)) {
-                var obj = Activator.CreateInstance(handler.Type);
-                var aif = AIFunctionFactory.Create(handler.MethodInfo, obj);
+                var instance = _mcpClasses.SingleOrDefault(x => x.GetType() == handler.DeclaringType);   
+                var aif = AIFunctionFactory.Create(handler, instance);
                 return JsonSerializer.Serialize(await aif.InvokeAsync(new AIFunctionArguments(dictionary)));
             }
             throw new Exception($"Tool {functionName} not found."); 

@@ -31,13 +31,13 @@ namespace McpForm_net_framework
             sc.AddSingleton(chatClient);    
 
             sc.AddMcpServer().WithToolsFromAssembly();
-            
-            // add chat tools;
+
+            // add chat tools; degli McpServerTool non me ne faccio niente ma sfrutto ToOpenAITool
             sc.AddSingleton(s=> s.GetServices<McpServerTool>().Select(t1 => t1.ToOpenAITool()));
 
             // add handlers;
             sc.AddSingleton(s => {
-                Dictionary<string, (MethodInfo MethodInfo, Type Type)> handlers = new Dictionary<string, (MethodInfo, Type)>();
+                Dictionary<string, MethodInfo > handlers = new Dictionary<string, MethodInfo>();
                 var tx = s.GetServices<McpServerTool>();
                 var tools = tx.Select(t1 => t1.ToOpenAITool());
 
@@ -54,13 +54,17 @@ namespace McpForm_net_framework
                             var tm = toolMethod.GetCustomAttribute<McpServerToolAttribute>();
                             if (tm != null)
                             {
-                                handlers.Add(tm.Name, (toolMethod, toolType));
+                                handlers.Add(tm.Name, toolMethod);
                             }
                         }
                     }
                 }
                 return  handlers;
             });
+
+
+            sc.RegisterByConvention<Program>();
+
             sc.AddSingleton<FakeMcpClient>(); 
             sc.AddSingleton<Form1>();   
 

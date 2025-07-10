@@ -16,8 +16,13 @@ using System.Windows.Forms;
 
 namespace WinFormsApp1
 {
-    [McpServerToolType]
-    public sealed class McpTools
+    public interface IMcpMarker
+    {
+        // This interface is used to mark classes that contain MCP tools.
+        // It can be used for reflection or other purposes.
+    }   
+[McpServerToolType]
+    public sealed class McpTools : ISingletonScope , IMcpMarker
     {
 
         public McpTools()
