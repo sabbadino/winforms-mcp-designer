@@ -1,0 +1,18 @@
+add a button named "pippo" to the form 
+add a label named "pippo" to the form 
+
+add a textbox named "pluto" to the form 
+set its text to "pluto"
+move it 100 pixel right 
+make it 50 wider 
+add a listbox 
+what can you do ? 
+
+move it to the right by 400 units in steps of 10
+add a textbox named "pluto" to the form 
+what's its distance from the center of the form area ? 
+set the backcolor to yellow
+move it to the opposite position relative to the center of the form area. do this action in steps of 100 units and give updates on the movements 
+draw circle at the center of the screen , radius 200
+draw line from upper left to lower right of the form
+draw a circle, radius 200, so that its border is tangent to the line at the center of the screen
