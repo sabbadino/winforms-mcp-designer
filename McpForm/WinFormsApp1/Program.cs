@@ -34,7 +34,7 @@ namespace WinFormsApp1
             });
 
 
-            var modelName = "gpt-4.1";
+            var modelName = builder.Configuration["model-name"]; 
             var openAIApiKey = builder.Configuration["open-ai-api-key"];
             var client = new OpenAI.OpenAIClient(openAIApiKey);
             var chatClient = client.GetChatClient(modelName);
@@ -60,7 +60,7 @@ namespace WinFormsApp1
             // To customize application configuration such as set high DPI settings or default font,
             // see https://aka.ms/applicationconfiguration.
             ApplicationConfiguration.Initialize();
-            Application.Run(new Form1(mcpClient, chatClient));
+            Application.Run(new Form1(mcpClient, chatClient,app.Configuration));
 
             await app.StopAsync();
         }

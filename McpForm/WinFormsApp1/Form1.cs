@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.SignalR.Protocol;
+using Microsoft.Extensions.Configuration;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 using OpenAI.Chat;
+using System.Configuration;
 using System.Text.Json;
 using System.Windows.Forms;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
@@ -13,6 +15,7 @@ namespace WinFormsApp1
     {
         internal static LLMDrivenForm? _LLMDrivenForm;
         private readonly ChatClient _chatClient;
+        private readonly IConfiguration _configuration;
         private readonly Dictionary<Guid, List<ChatMessage>> _AllMessages = new();
         private readonly Dictionary<Guid, List<ChatMessageSerializable>> _AllMessagesSerializable= new();
         public Form1()
@@ -20,11 +23,11 @@ namespace WinFormsApp1
             InitializeComponent();
         }
 
-        public Form1(IMcpClient mcpClient, ChatClient chatClient) : this()
+        public Form1(IMcpClient mcpClient, ChatClient chatClient, IConfiguration configuration) : this()
         {
             _mcpClient = mcpClient;
             _chatClient = chatClient;
-            
+            _configuration = configuration;
         }
 
         private Guid _conversationId = Guid.NewGuid();
@@ -39,6 +42,13 @@ namespace WinFormsApp1
             messages.Add(new UserChatMessage(textBox1.Text));
             textBox1.Text = "";
             var co = new ChatCompletionOptions();
+            co.Temperature = int.Parse(_configuration["temperature"]);
+#pragma warning disable OPENAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+            if (!string.IsNullOrWhiteSpace(_configuration["reasoning-effort"]))
+            {
+                co.ReasoningEffortLevel = _configuration["reasoning-effort"];
+            }
+#pragma warning restore OPENAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
             foreach (var tool in tools)
             {
                 co.Tools.Add(tool.ToOpenAITool());
