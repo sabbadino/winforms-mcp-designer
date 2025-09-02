@@ -1,168 +1,135 @@
-# WinForms MCP Designer
+# WinForms MCP Designer — AI-driven Windows Forms layout via chat
 
-An LLM-driven WinForms layout editor. Build and modify a live Windows Forms UI by chatting. The LLM calls MCP tools you expose to add/move/resize controls and draw on a second form in real time.
+This solution demonstrates how to drive a Windows Forms UI designer through natural language using Microsoft Semantic Kernel (SK) function calling. The LLM chats with the user and invokes strongly-typed .NET “tools” to add/move/resize controls and draw primitives on a live WinForms surface.
 
-## What this project does
+## Goals
 
-- Hosts an in-process MCP server (ASP.NET Core minimal host) that exposes UI-manipulation tools.
-- Starts a WinForms app with two windows:
-  - Form1: a simple chat UI where you type requests.
-  - LLMDrivenForm: a live canvas the tools modify (add controls, resize, draw).
-- Bridges OpenAI Chat function-calling with MCP tools:
-  - Lists MCP tools and registers them as OpenAI “function tools”.
-  - Runs a tool-call loop: on ToolCalls the client invokes the MCP tool, feeds results back to the model, and continues until a final answer.
-- Logs every conversation to timestamped JSON files.
+- Provide a conversational interface to build and edit a WinForms layout in real time.
+- Expose safe, typed operations (add control, update property, draw line/circle, resize) the LLM can call via SK plugins.
+- Maintain chat context and a consistent system prompt to keep the assistant on task.
 
-## How it works (high level)
+## Components and libraries
 
-- Program.cs
-  - Builds an ASP.NET Core WebApplication inside the WinForms process.
-  - Registers MCP server and auto-discovers tools from the current assembly.
-  - Maps the MCP endpoint at /mcp and runs the web host in the background.
-  - Creates an OpenAI ChatClient from the configured model and API key.
-  - Creates an IMcpClient using SSE transport pointing at the configured MCP server URL.
-  - Boots the WinForms app passing IMcpClient, ChatClient, and IConfiguration to Form1.
+Projects
 
-- Form1.cs
-  - Maintains per-conversation chat history and a serializable log.
-  - On Send:
-    - Loads tool definitions from IMcpClient and adds them to ChatCompletionOptions as OpenAI function tools.
-    - Calls ChatClient.CompleteChat in a loop:
-      - If ToolCalls: invoke each tool via IMcpClient.CallToolAsync and append ToolChatMessages, then continue.
-      - If Stop: append the assistant response and render it in the ListBox.
-  - Shows the LLMDrivenForm next to the chat to visualize changes.
-  - Persists a JSON log per conversation under the working directory.
+- AIDrawingModule (class library)
+	- `DrawerChatService` + `IDrawerChatService`: Orchestrates LLM chat using SK. Builds/uses `ChatHistory`, injects a system message, and enables function-calling via SK. Persists conversation state.
+	- `ServiceCollectionExtensions`: Wires up AIDrawingModule options and SK kernels from configuration. Registers plugins and kernels into DI; adds Azure OpenAI or OpenAI chat completion based on model settings.
+	- `Settings` (options/config types): `AIDrawingModuleOptions`, `SemanticKernelsSettings`, `KernelSettings`, `Model`, `OpenAISpecificSettings`, `KernelWrapper`. Validated by `SemanticKernelOptionsValidation`.
+	- `ConversationRepository` + `IConversationRepository`: Persists `ChatHistory` to disk (per-conversation JSON in the temp folder) and loads it back.
+	- `TemplatesProvider` + `ITemplatesProvider`: Loads embedded prompt templates; used to inject the system message (see `AIDrawingModule/Templates/system-message-1.md`).
+	- `SKPlugins.SemanticKernelPlugins`: The SK tool surface. Exposes kernel functions the LLM can call: `add_control_to_form`, `update_control_property`, `get_form_layout`, `draw_line`, `draw_circle`, `resize_control`. Each delegates to the `ICommandExecutor` implementation.
 
-- Tools/McpTools.cs
-  - Annotated with [McpServerToolType] and [McpServerTool] so they’re discovered by the MCP server.
-  - Uses Control/Graphics APIs to update LLMDrivenForm on the UI thread via Control.Invoke.
+- WinFormsApp1 (WinForms app)
+	- `Program.cs`: Creates a generic host, binds `AIDrawingModuleOptions` from `appsettings.json`/secrets/env, registers AIDrawing services, and starts the UI.
+	- `Form1`: Chat UI window. Hosts the conversation and sends user prompts to `IDrawerChatService`.
+	- `LLMDrivenForm`: The live design surface the LLM edits.
+	- `CommandExecutor` (implements `ICommandExecutor`): Executes tool calls on the WinForms UI thread (adds/updates controls, draws primitives, resizes). Returns the current layout as JSON.
+	- `FormExtensions`: Serializes the current form layout (control tree and properties) into a DTO for tool responses.
+	- `appsettings.json`: Configures kernels (OpenAI/Azure OpenAI), API-key lookup, log levels, the default kernel name, and which plugin(s) to load.
 
-- Bridging helpers
-  - McpExtensions.cs converts MCP tool schemas to OpenAI ChatTool definitions.
-  - FormExtensions.cs serializes the live form/control tree to a simple POCO layout (for tool return values and logging).
+## Execution flow
 
-## Solution structure
+High level
 
-- McpForm.sln — Solution file
-- WinFormsApp1/
-  - Program.cs — Web host + MCP server + Chat/OpenAI wiring + WinForms bootstrap
-  - Form1.cs / Form1.Designer.cs / Form1.resx — Chat UI and tool-call loop
-  - LLMDrivenForm.cs / LLMDrivenForm.Designer.cs / LLMDrivenForm.resx — Live form that tools modify
-  - Tools/McpTools.cs — MCP tools (add/update controls, draw primitives, resize)
-  - McpExtensions.cs — MCP ➜ OpenAI tool conversion
-  - FormExtensions.cs — Serialize control tree to ControlLayout
-  - Templates/system-message-1.md — System prompt guiding the LLM’s behavior
-  - appsettings.json — App configuration (model, temperature, MCP server URL, logging)
-  - Properties/launchSettings.json — Local dev URLs for the web host
+1) App startup
+	- `Program.cs` builds a Host and binds `AIDrawingModuleOptions` from `appsettings.json`, user secrets, env vars, and command-line.
+	- `ServiceCollectionExtensions.AddAIModuleOptions` validates options, registers the configured kernels, and keys/loads SK plugins declared in `KernelSettings.Plugins`.
+	- Each `KernelSettings` produces a `KernelWrapper` with a fully built SK `Kernel`. For Azure OpenAI or OpenAI, the respective chat completion service is added.
+	- The app resolves `IDrawerChatService` and starts `Form1` (chat) and `LLMDrivenForm` (canvas).
 
-## Exposed MCP tools (server side)
+2) User chats
+	- On send, `Form1` calls `DrawerChatService.GetResponse(conversationId, prompt)`.
+	- `DrawerChatService` retrieves `ChatHistory` from `ConversationRepository` (temp-folder JSON). If empty, it injects the system message from `TemplatesProvider` (`system-message-1.md`).
+	- It configures `PromptExecutionSettings` (temperature, reasoning effort, and `FunctionChoiceBehavior.Auto` with strict schema adherence) and calls SK’s `IChatCompletionService`.
 
-- add_control_to_form(controlType, controlText, controlName, controlHorizontalPosition, controlVerticalPosition)
-- update_control_property(controlName, propertyName, propertyValue)
-  - Supported ControlProperties: Text, Left, Top, BackColor, ForeColor (HTML color strings are parsed)
-- resize_control(controlName, WidthDelta, HeightDelta)
-- get_form_layout()
-- draw_line(startX, startY, endX, endY, color)
-- draw_circle(startX, startY, radius, color)
+3) Function calling (tool use)
+	- When the LLM decides to act, SK invokes functions exposed by `SemanticKernelPlugins`.
+	- Each function calls `ICommandExecutor` (implemented by `WinFormsApp1.CommandExecutor`) to mutate the live `LLMDrivenForm` on the UI thread. Examples:
+		- Add a control at a given position and name.
+		- Update a control property (e.g., `Text`, `Left`, `Top`, `BackColor`/`ForeColor` in HTML color strings).
+		- Draw a line or circle overlay.
+		- Resize an existing control by deltas.
+	- After each action, `CommandExecutor` returns the updated layout via `FormExtensions.SerializeControl()` (JSON), which is sent back to the model and displayed in the chat.
 
-Each tool returns the updated serialized layout (except draw primitives, which also return layout for convenience). Drawing uses Control.CreateGraphics and is not persisted on repaint.
+4) Persistence and continuity
+	- `DrawerChatService` appends user and assistant messages to `ChatHistory` and persists it via `ConversationRepository` so the conversation (and state) continues across turns per `conversationId`.
 
-## Dependencies (NuGet)
+Configuration highlights
 
-- Azure.AI.OpenAI (2.3.0-beta.2)
-- ModelContextProtocol (0.3.0-preview.4)
-- ModelContextProtocol.AspNetCore (0.3.0-preview.4)
-- Microsoft.AspNetCore.OpenApi (9.0.8)
-- Microsoft.Extensions.Configuration.UserSecrets (9.0.8)
+- `AIDrawingModuleOptions:KernelName` selects which configured kernel to use at runtime.
+- Kernels are defined under `AIDrawingModuleOptions:SemanticKernelsSettings:KernelSettings` with:
+	- Model provider (`OpenAi` or `AzureOpenAi`), deployment/model name, optional URL, API key name.
+	- Plugin list (e.g., `"AIDrawingModule.SKPlugins.SemanticKernelPlugins"`).
+	- Temperature and optional reasoning effort.
+- API keys are looked up in `AIDrawingModuleOptions:SemanticKernelsSettings:ApiKeys` by name; actual secrets can be overridden by user secrets or environment variables.
 
-Key namespaces/APIs used:
-- OpenAI.OpenAIClient and OpenAI.Chat (chat + tool-calling loop)
-- ModelContextProtocol.Client (IMcpClient, SseClientTransport)
-- ModelContextProtocol.Server (tool annotations and hosting extensions)
-- System.Windows.Forms (Form, Control, Graphics)
+System prompt
 
-## Configuration
+- `AIDrawingModule/Templates/system-message-1.md` anchors the assistant behavior (e.g., interpret color values as HTML for `ForeColor`/`BackColor`, stick to supported tool parameters, and treat “form”/“control” as the current ones).
 
-appsettings.json (values copied to output on build):
+## Notes
 
-- mcp-server: The HTTP URL of the MCP server to call (e.g., http://localhost:5000/mcp). You can point this to the in-process server if you configure the ASP.NET host to listen there.
-- model-name: OpenAI model identifier (example: gpt-4.1)
-- temperature: integer temperature (0–2)
-- reasoning-effort: optional, e.g., "low" (when supported by the model/SDK)
+- The IoC conventions auto-register classes by lifetime marker interfaces. For example, `DrawerChatService`, `TemplatesProvider`, and `ConversationRepository` are singletons.
+- `FunctionChoiceBehavior.Auto` lets the LLM call tools as needed while SK enforces typed parameters.
+- `ConversationRepository` stores chat history in the system temp directory as `<conversationId>.json`.
 
-OpenAI API key is read from user secrets (not in appsettings.json). The project is already configured with a UserSecretsId.
+## How to run
 
-Example: set the secret at the project root (Windows bash):
+Prerequisites
+
+- Windows
+- .NET 9 SDK
+- An API key for either OpenAI or Azure OpenAI
+
+Configure API keys
+
+- Option 1 — Environment variables (works for all shells)
 
 ```bash
-# Inside McpForm/WinFormsApp1
-dotnet user-secrets set "open-ai-api-key" "<YOUR_OPENAI_API_KEY>"
+export AIDrawingModuleOptions__SemanticKernelsSettings__ApiKeys__DevOpenAiApiKey="sk-your-openai-key"
+export AIDrawingModuleOptions__SemanticKernelsSettings__ApiKeys__DevAzureOpenAiApiKey="your-azure-openai-key"
 ```
 
-Optional: force the in-process web host to a known URL so the client can target it:
+- Option 2 — .NET user-secrets (scoped to this repo)
 
 ```bash
-# Example to host the MCP endpoint at http://localhost:5000
-export ASPNETCORE_URLS="http://localhost:5000"
+# From repo root
+dotnet user-secrets set \
+	AIDrawingModuleOptions:SemanticKernelsSettings:ApiKeys:DevOpenAiApiKey \
+	"sk-your-openai-key" \
+	--project "WinFormsApp1"
+
+dotnet user-secrets set \
+	AIDrawingModuleOptions:SemanticKernelsSettings:ApiKeys:DevAzureOpenAiApiKey \
+	"your-azure-openai-key" \
+	--project "WinFormsApp1"
 ```
 
-Then set appsettings.json:
+Choose a kernel
 
-```json
-{
-  "mcp-server": "http://localhost:5000/mcp",
-  "model-name": "gpt-4.1",
-  "temperature": 0,
-  "reasoning-effort": null
-}
-```
+- Edit `WinFormsApp1/appsettings.json` and set `AIDrawingModuleOptions:KernelName` to one of the configured kernels, for example:
+	- `KernelOpenAi-gpt-5-mini` (OpenAI)
+	- `KernelAzureOpenAi-gpt-5-mini` (Azure OpenAI)
 
-## Run it
-
-- Requirements: Windows, .NET 9 SDK.
-- From the repo root or project directory:
+Build and run
 
 ```bash
-# Restore
-dotnet restore
-
-# Run the WinForms app
-dotnet run --project WinFormsApp1/WinFormsApp1.csproj
+dotnet build
+dotnet run --project "WinFormsApp1"
 ```
 
-What you’ll see:
-- A chat window (Form1) and a separate LLMDrivenForm window.
-- Type natural language requests like “Add a blue Button named Submit at x=100,y=120” or “Increase the width of Submit by 40”. The model will call the appropriate MCP tools to perform the change.
+Try it
 
-Conversation logs are saved to timestamped JSON files in the working directory.
+- Two windows open: the chat (`Form1`) and the live canvas (`LLMDrivenForm`).
+- Sample prompts:
+	- "Add a Button named btnOk at 100,100 with text OK"
+	- "Set btnOk ForeColor to #ff0000"
+	- "Resize btnOk by width +20 and height +10"
+	- "Draw a blue line from 10,10 to 200,10"
 
-## Prompting behavior
+Troubleshooting
+- If the model can’t call tools, ensure the `Plugins` array in `appsettings.json` includes `AIDrawingModule.SKPlugins.SemanticKernelPlugins` for the chosen kernel.
+- If you see key/config errors, verify the key names match `ApiKeys` and that `KernelName` matches one of the configured `KernelSettings:Name` values.
+- Azure OpenAI requires a non-empty `Url`; OpenAI sets `RequiresUrl=false`.
 
-The system prompt lives in `WinFormsApp1/Templates/system-message-1.md`. It reminds the model to:
-- Treat “form” as the currently edited live form.
-- Provide HTML color strings when setting ForeColor/BackColor.
-- Only use supported tool parameters (don’t invent properties the tools don’t accept).
-
-You can tweak this file to adjust behavior and capabilities.
-
-## Extending the toolset
-
-1. Add a method to `Tools/McpTools.cs` and decorate it with `[McpServerTool(Name = "your_tool")]`.
-2. Use `[Description("...")]` on parameters for better schema/help text.
-3. Keep UI updates on the UI thread: call `Form1._LLMDrivenForm.Invoke(...)`.
-4. Return a useful payload (often the serialized form layout).
-
-The server is registered with `.WithToolsFromAssembly()`, so tools are auto-discovered at startup.
-
-## Notes and limitations
-
-- `UpdateControlProperty` enforces type checks at runtime and currently supports a limited set of properties.
-- Drawing uses `CreateGraphics` and won’t persist after a repaint; consider custom controls or painting in OnPaint if persistence is needed.
-- Control instantiation assumes types under `System.Windows.Forms` (e.g., Button, Label, TextBox, ...).
-- If you want the in-process MCP server and client to talk to each other, ensure `ASPNETCORE_URLS` (or equivalent host config) matches `mcp-server` in appsettings.
-
-## IMPORTANT CONSIDERATIONS
-
-- Having communication with tools via http, hosting in the same app both the mcp client and the mcp http server offer flexibility but it might be overkill and not required. 
-One might consider to expose  the tools as local (using Semantic Kernel), so tehre is no need to make a network hop and expose and http endpoint from the client app.
-- When using gpt5 reasoning family, using reasoning_effort = minimum is sufficent but the current version of SDK does not allow to set it (so we are currently setting it to "low"): switch to "minimum" when updated sdk is available.
