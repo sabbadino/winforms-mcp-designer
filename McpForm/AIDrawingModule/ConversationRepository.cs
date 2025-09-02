@@ -2,6 +2,7 @@
 using AIDrawingModuleAbstractions.IocConventions;
 using Microsoft.Extensions.Options;
 using Microsoft.SemanticKernel.ChatCompletion;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -22,11 +23,17 @@ namespace AIDrawingModule
             _path = Path.GetTempPath();
         }
 
+        private string GetConversationFilePath(string Id)
+        {
+            return Path.Combine(_path, $"{Id}.json");
+        }
+
         public async Task<ChatHistory?> GetConversationByIdAsync(string Id)
         {
-            if(File.Exists(Path.Combine(_path,$"{Id}.json")))
+            var file = GetConversationFilePath(Id);
+            if (File.Exists(file))
             {
-                var content = await File.ReadAllTextAsync(Path.Combine(_path, $"{Id}.json"));
+                var content = await File.ReadAllTextAsync(file, Encoding.UTF8);
                 var chatHistory = JsonSerializer.Deserialize<ChatHistory>(content, _jsonSerializerOptions);
                 return chatHistory;
             }   
@@ -34,8 +41,10 @@ namespace AIDrawingModule
         }
         public async Task PersistConversation(string Id,ChatHistory chatHistory)
         {
-            var file = File.Exists(Path.Combine(_path, $"{Id}.json"));
-            JsonSerializer.Serialize(chatHistory, _jsonSerializerOptions);
+            var file = GetConversationFilePath(Id); ;
+            var json = JsonSerializer.Serialize(chatHistory, _jsonSerializerOptions);
+            File.WriteAllText(file,json,Encoding.UTF8);
+
         }
     }
 }

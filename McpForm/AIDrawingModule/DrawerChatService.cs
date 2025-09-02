@@ -49,7 +49,7 @@ namespace AIDrawingModule
                     options: new FunctionChoiceBehaviorOptions
                     {
                         AllowStrictSchemaAdherence = true,
-                        RetainArgumentTypes = true,
+                      //  RetainArgumentTypes = true,
                     })
                 },
                 ModelCategory.OpenAi => new OpenAIPromptExecutionSettings
@@ -60,7 +60,7 @@ namespace AIDrawingModule
                     options: new FunctionChoiceBehaviorOptions
                     {
                         AllowStrictSchemaAdherence = true,
-                        RetainArgumentTypes = true
+                   //     RetainArgumentTypes = true
                     })
                 },
                 _ => throw new SemanticKernelException($"Model category {kernelWrapper.KernelSettings.Model?.Category} is not supported"),
@@ -94,6 +94,7 @@ namespace AIDrawingModule
             chatHistory.AddUserMessage(prompt); 
             var completion = await chatClient.GetChatMessageContentsAsync(chatHistory,promptExecutionSettings, kernelWrapper.Kernel);
             chatHistory.AddAssistantMessage(completion[0].Content??"");
+            await _conversationRepository.PersistConversation(conversationId,chatHistory);
             return completion[0].Content??"";   
         }
     }
