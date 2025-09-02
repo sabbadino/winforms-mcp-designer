@@ -11,22 +11,24 @@
 
   <ItemGroup>
     <None Remove="appsettings.json" />
-    <None Remove="Templates\system-message-1.md" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Include="appsettings.json">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>
-    <Content Include="Templates\system-message-1.md">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
   </ItemGroup>
 	<ItemGroup>
-		<PackageReference Include="Azure.AI.OpenAI" Version="2.3.0-beta.2" />
+		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.8" />
 		<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.8" />
 		<PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="9.0.8" />
-		<PackageReference Include="ModelContextProtocol" Version="0.3.0-preview.4" />
-		<PackageReference Include="ModelContextProtocol.AspNetCore" Version="0.3.0-preview.4" />
+		
+	</ItemGroup>
+	<ItemGroup>
+	  <Folder Include="Tools\" />
+	</ItemGroup>
+	<ItemGroup>
+	  <ProjectReference Include="..\AIDrawingModuleAbstractions\AIDrawingModuleAbstractions.csproj" />
+	  <ProjectReference Include="..\AIDrawingModule\AIDrawingModule.csproj" />
 	</ItemGroup>
 </Project>

@@ -1,10 +1,9 @@
-using Microsoft.AspNetCore.Builder;
+using AIDrawingModule;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
-using ModelContextProtocol.Client;
-using ModelContextProtocol.Protocol;
-using OpenAI.Chat;
+using AIDrawingModuleAbstractions.IocConventions; 
+
 
 namespace WinFormsApp1
 {
@@ -17,50 +16,25 @@ namespace WinFormsApp1
         static async Task Main(string[] args)
         {
 
-            var builder = WebApplication.CreateBuilder(args);
-            builder.Services
-            .AddMcpServer().WithHttpTransport(o => /* required for open ai mco calls */ o.Stateless = true)
-            .WithToolsFromAssembly();
-            builder.Services.AddHttpClient();
-
-            var transport = new SseClientTransport(new SseClientTransportOptions { Endpoint = new Uri($"{builder.Configuration["mcp-server"]}"), TransportMode = HttpTransportMode.StreamableHttp });
-            builder.Services.AddSingleton((serviceProvider) =>
-            {
-                var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
-                var mcpClient = McpClientFactory.CreateAsync(transport, new McpClientOptions
-                {
-                }, loggerFactory).Result;
-                return mcpClient;
-            });
-
-
-            var modelName = builder.Configuration["model-name"]; 
-            var openAIApiKey = builder.Configuration["open-ai-api-key"];
-            var client = new OpenAI.OpenAIClient(openAIApiKey);
-            var chatClient = client.GetChatClient(modelName);
-            builder.Services.AddSingleton(chatClient);
-
-
+            var builder = Host.CreateApplicationBuilder(args);
+            builder.Configuration
+                 .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
+                 .AddUserSecrets<Form1>()
+                 .AddEnvironmentVariables()
+                 .AddCommandLine(Environment.GetCommandLineArgs());
+            builder.Services.AddAIModuleOptions(options => builder.Configuration.Bind("AIDrawingModuleOptions", options));
+            builder.Services.RegisterByConvention<CommandExecutor>();
             var app = builder.Build();
 
-            app.MapMcp("mcp");
-#pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
-            Task.Run(() =>
-            {
-                // This is a workaround to ensure the MCP server starts before the WinForms application.
-                // The MCP server will run in the background.
-                app.Run();
-            });
+           
 
 
 
 
-#pragma warning restore CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
-            var mcpClient = app.Services.GetRequiredService<IMcpClient>();  
-            // To customize application configuration such as set high DPI settings or default font,
-            // see https://aka.ms/applicationconfiguration.
+            var drawerChatService = app.Services.GetRequiredService<IDrawerChatService>();
+            var conf = app.Services.GetRequiredService<IConfiguration>();
             ApplicationConfiguration.Initialize();
-            Application.Run(new Form1(mcpClient, chatClient,app.Configuration));
+            Application.Run(new Form1(drawerChatService, conf));
 
             await app.StopAsync();
         }

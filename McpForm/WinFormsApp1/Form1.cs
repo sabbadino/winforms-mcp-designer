@@ -1,8 +1,7 @@
+using AIDrawingModule;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.SignalR.Protocol;
 using Microsoft.Extensions.Configuration;
-using ModelContextProtocol.Client;
-using ModelContextProtocol.Protocol;
 using OpenAI.Chat;
 using System.Configuration;
 using System.Text.Json;
@@ -16,6 +15,7 @@ namespace WinFormsApp1
         internal static LLMDrivenForm? _LLMDrivenForm;
         private readonly ChatClient _chatClient;
         private readonly IConfiguration _configuration;
+        private readonly IDrawerChatService _drawerChatService;
         private readonly Dictionary<Guid, List<ChatMessage>> _AllMessages = new();
         private readonly Dictionary<Guid, List<ChatMessageSerializable>> _AllMessagesSerializable= new();
         public Form1()
@@ -23,104 +23,31 @@ namespace WinFormsApp1
             InitializeComponent();
         }
 
-        public Form1(IMcpClient mcpClient, ChatClient chatClient, IConfiguration configuration) : this()
+        public Form1(IDrawerChatService drawerChatService, IConfiguration configuration) : this()
         {
-            _mcpClient = mcpClient;
-            _chatClient = chatClient;
+            _drawerChatService = drawerChatService;
             _configuration = configuration;
         }
 
         private Guid _conversationId = Guid.NewGuid();
        
-        private readonly IMcpClient _mcpClient;
+      
 
         private async void button1_Click(object sender, EventArgs e)
         {
             listBox1.Items.Add($"U: {textBox1.Text}");
-            var tools = await _mcpClient.ListToolsAsync();
-            (var messages,var ms)  = GetOrCreateConversation(_conversationId);
-            messages.Add(new UserChatMessage(textBox1.Text));
+            var responseText = await _drawerChatService.GetResponse(_conversationId.ToString(),textBox1.Text);
             textBox1.Text = "";
-            var co = new ChatCompletionOptions();
-            co.Temperature = int.Parse(_configuration["temperature"]);
-#pragma warning disable OPENAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-            if (!string.IsNullOrWhiteSpace(_configuration["reasoning-effort"]))
-            {
-                co.ReasoningEffortLevel = _configuration["reasoning-effort"];
-            }
-#pragma warning restore OPENAI001 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
-            foreach (var tool in tools)
-            {
-                co.Tools.Add(tool.ToOpenAITool());
-            }
-            bool requiresAction;
-
-            do
-            {
-                requiresAction = false;
-                ChatCompletion completion = _chatClient.CompleteChat(messages, co);
-
-                switch (completion.FinishReason)
-                {
-                    case ChatFinishReason.Stop:
-                        {
-                            // Add the assistant message to the conversation history.
-                            messages.Add(new AssistantChatMessage(completion));
-                            ms.Add(new ChatMessageSerializable { Role = "Assistant", Text = messages.Last().Content[0].Text });
-                            break;
-                        }
-
-                    case ChatFinishReason.ToolCalls:
-                        {
-                            // First, add the assistant message with tool calls to the conversation history.
-                            messages.Add(new AssistantChatMessage(completion));
-                            ms.Add(new ChatMessageSerializable { Role = completion.Role.ToString(), Text = $"function name: {completion.ToolCalls[0].FunctionName} arguments {completion.ToolCalls[0].FunctionArguments.ToString()}" });
-                            // Then, add a new tool message for each tool call that is resolved.
-                            foreach (ChatToolCall toolCall in completion.ToolCalls)
-                            {
-                                if (tools.Select(t => t.Name).Contains(toolCall.FunctionName, StringComparer.OrdinalIgnoreCase))
-                                {
-                                    var toolResult = await _mcpClient.CallToolAsync(toolCall.FunctionName, JsonSerializer.Deserialize<Dictionary<string, object?>>(toolCall.FunctionArguments.ToString()));
-                                    messages.Add(new ToolChatMessage(toolCall.Id,((TextContentBlock)toolResult.Content[0]).Text));
-                                    ms.Add(new ChatMessageSerializable { Role = "Tool", Text = ((TextContentBlock)toolResult.Content[0]).Text});   
-                                }
-                                else
-                                {
-                                    throw new Exception($"Tool {toolCall.FunctionName} not found");
-                                }
-                            }
-
-                            requiresAction = true;
-                            break;
-                        }
-
-                    case ChatFinishReason.Length:
-                        throw new NotImplementedException("Incomplete model output due to MaxTokens parameter or token limit exceeded.");
-
-                    case ChatFinishReason.ContentFilter:
-                        throw new NotImplementedException("Omitted content due to a content filter flag.");
-
-                    case ChatFinishReason.FunctionCall:
-                        throw new NotImplementedException("Deprecated in favor of tool calls.");
-
-                    default:
-                        throw new NotImplementedException(completion.FinishReason.ToString());
-                }
-            } while (requiresAction);
-
-            TextSplitter.SplitText(messages.Last().Content[0].Text);
             var prefix = "A: ";
-            foreach (var part in TextSplitter.SplitText(messages.Last().Content[0].Text, listBox1.Width/7, listBox1.Width/7+1))
+            foreach (var part in TextSplitter.SplitText(responseText, listBox1.Width/7, listBox1.Width/7+1))
             {
                 listBox1.Items.Add($"{prefix}{part}");
                 prefix = "";
             }
-            File.WriteAllLines(GetFileName(),  new[] { JsonSerializer.Serialize(ms,new JsonSerializerOptions { WriteIndented = true}) } );
+          
         }
 
-        private string GetFileName() => 
-            $".\\{DateTime.Now.ToString("yyyy-MM-dd-HH-mm-ss")}conversation-{_conversationId}.json";
-
+     
         private void button2_Click(object sender, EventArgs e)
         {
             _conversationId = Guid.NewGuid();
