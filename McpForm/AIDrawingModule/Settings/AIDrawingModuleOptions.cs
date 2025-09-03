@@ -34,8 +34,6 @@ namespace AIDrawingModule.Settings
         public Model? Model { get; init; }
 
     
-        public IList<string> Arguments { get; init; } = new List<string>();
-
         public OpenAISpecificSettings? OpenAISpecificSettings { get; init; }
     }
 
